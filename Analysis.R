@@ -1,4 +1,5 @@
-setwd("X:/Bioinfomatics/Class2018/Bioinfo_Tsukuba2018/GSE117067/Rscript")
+# setwd("X:/Bioinfomatics/Class2018/Bioinfo_Tsukuba2018/GSE117067/Rscript")
+setwd("C:/Bioinfomatics/Class2018/Bioinfo_Tsukuba/Rscript")
 library(TCC)
 # library(Biostrings)
 library(biomaRt)
@@ -93,7 +94,8 @@ write.table(rawdata, "rawdata.txt", sep = "\t",row.names = F)
 rawdata_paper <- read_delim("preetika_Oct.w_LimmaVoom_DEG_results.txt", 
                             "\t", escape_double = FALSE, trim_ws = TRUE)
 
-
+head(rawdata)
+head(rawdata_paper)
 
 
 # DEG Analysis by TCC  -----------------------------------------------------
@@ -104,7 +106,7 @@ Group <- c("WT","WT","WT","WT","KO","KO","KO","KO")       # set Group
 
 ## set parameters -------------------------
 in_f <- DEG_rawdata                        
-out_f <- "df_result.txt"
+out_f <- "Result/df_result.txt"
 param_method <- "edger"
 param_FDR <- 0.1
 
@@ -128,7 +130,10 @@ result %>% left_join(., rawdata) %>%
     dplyr::select(c(1:6, 13:20, 7:10))-> df_result
 write.table(df_result, out_f, sep = "\t", row.names = F)
 
-
+df_result %>%
+  dplyr::select(-(2:6)) %>% 
+  dplyr::filter(q.value < 0.1) -> tmp
+write.table(tmp, "Result/df_result_.txt",sep = "\t", quote = F, row.names = F)
 # df_result %>% 
 #     dplyr::filter(q.value < 0.05) %>% dim() 
 # 
@@ -179,6 +184,55 @@ venn.diagram(Venn_data,
              cat.cex=c(2,2),
              cex=c(2,2,2)
 )
+
+## Schatter plot My data vs Paper -----------------------------------------------------------
+Normalized_rawdata[1:10,]
+rawdata_paper[1:10,]
+colnames(rawdata_paper)[2:9] <- c("WT_1_p", "WT_2_p","WT_3_p","WT_4_p","KO_1_p", "KO_2_p", "KO_3_p", "KO_4_p")
+rawdata_paper$gene_id <- rawdata_paper$id
+
+Normalized_rawdata %>% 
+  inner_join(., rawdata_paper) %>%
+  dplyr::select("gene_id", "WT_1","WT_2","WT_3","WT_4","KO_1","KO_2","KO_3","KO_4",
+                "WT_1_p", "WT_2_p","WT_3_p","WT_4_p","KO_1_p", "KO_2_p", "KO_3_p", "KO_4_p") %>% 
+  dplyr::mutate(mean_WT = (WT_1 + WT_2 + WT_3 + WT_4)/4) %>% 
+  dplyr::mutate(mean_KO = (KO_1 + KO_2 + KO_3 + KO_4)/4) %>% 
+  dplyr::mutate(mean_WT_p = (WT_1_p + WT_2_p + WT_3_p + WT_4_p)/4) %>% 
+  dplyr::mutate(mean_KO_p = (KO_1_p + KO_2_p + KO_3_p + KO_4_p)/4) %>% 
+  dplyr::select(gene_id, mean_WT,mean_KO, mean_WT_p, mean_KO_p) -> df_schatter
+df_schatter[,-1] <- round(df_schatter[,-1], 2)
+head(df_schatter)
+
+g <-ggplot(df_schatter, aes(x=mean_WT_p, y=mean_WT_p)) +
+  geom_point() +
+  geom_hline(yintercept=0) + geom_vline(xintercept=0) +
+  xlab("Fold Change in paper data") +
+  ylab("Fold Change in my analysis") +
+  theme(panel.background=element_rect(fill="white"),
+        axis.line=element_line(colour="black"),
+        axis.title=element_text(size=10),
+        axis.text=element_text(size=10)
+  )
+g
+ggsave(filename = "Result/Schatter_plot_WT.tiff", plot = g,
+       width = 128, height = 128, 
+       units = ("mm"), dpi = 300)
+
+
+g <-ggplot(df_schatter, aes(x=mean_KO_p, y=mean_KO)) +
+  geom_point() +
+  geom_hline(yintercept=0) + geom_vline(xintercept=0) +
+  xlab("Fold Change in paper data") +
+  ylab("Fold Change in my analysis") +
+  theme(panel.background=element_rect(fill="white"),
+        axis.line=element_line(colour="black"),
+        axis.title=element_text(size=10),
+        axis.text=element_text(size=10)
+  )
+g
+ggsave(filename = "Result/Schatter_plot_KO.tiff", plot = g,
+       width = 128, height = 128, 
+       units = ("mm"), dpi = 300)
 
 # Clustering Samples --------------------------------------------------------
 head(Normalized_rawdata) 
