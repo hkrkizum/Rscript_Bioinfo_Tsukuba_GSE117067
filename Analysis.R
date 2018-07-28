@@ -1,10 +1,22 @@
-# setwd("X:/Bioinfomatics/Class2018/Bioinfo_Tsukuba2018/GSE117067/Rscript")
+setwd("X:/Bioinfomatics/Class2018/Bioinfo_Tsukuba2018/GSE117067/Rscript_Bioinfo_Tsukuba_GSE117067")
 setwd("C:/Bioinfomatics/Class2018/Bioinfo_Tsukuba/Rscript")
 library(TCC)
-# library(Biostrings)
+library(Biostrings)
 library(biomaRt)
 library(gplots)
 library(tidyverse)
+## my function ---------------------------
+grep_chr_1 <- function(x, y){   #ハイフンから前
+    a <- str_locate(x, y)
+    b <- substr(x, 1, a-1)
+    return(b)
+}
+
+grep_chr_2 <- function(x, y){   #ハイフンから後
+    a <- str_locate(x, y)
+    b <- substr(x, a+1, nchar(x))
+    return(b)
+}
 
 # Data loarding ------------------------------------------------------------
 
@@ -89,7 +101,7 @@ full_join(WT_1, WT_2) %>%
     as.data.frame -> rawdata
 rownames(rawdata) <- rawdata$gene_id
 
-write.table(rawdata, "rawdata.txt", sep = "\t",row.names = F)
+write.table(rawdata, "Result/rawdata.txt", sep = "\t",row.names = F)
 
 rawdata_paper <- read_delim("preetika_Oct.w_LimmaVoom_DEG_results.txt", 
                             "\t", escape_double = FALSE, trim_ws = TRUE)
@@ -133,21 +145,12 @@ write.table(df_result, out_f, sep = "\t", row.names = F)
 df_result %>%
   dplyr::select(-(2:6)) %>% 
   dplyr::filter(q.value < 0.1) -> tmp
-write.table(tmp, "Result/df_result_.txt",sep = "\t", quote = F, row.names = F)
+write.table(tmp, "Result/df_result_2.txt",sep = "\t", quote = F, row.names = F)
 # df_result %>% 
 #     dplyr::filter(q.value < 0.05) %>% dim() 
 # 
 df_result %>%
     dplyr::filter(q.value < 0.1) %>% dim()
-106 * 0.9
-# 
-# df_result %>% 
-#     dplyr::filter(q.value < 0.2) %>% dim() 
-# 199 * 0.8
-# 
-# df_result %>% 
-#     dplyr::filter(q.value < 0.3) %>% dim() 
-# 335 * 0.7
 
 ## make MAplot -----------------------------------------------
 png("Result/MAplot.png", height = 3000, width = 3000, res = 300)
@@ -186,9 +189,8 @@ venn.diagram(Venn_data,
 )
 
 ## Schatter plot My data vs Paper -----------------------------------------------------------
-Normalized_rawdata[1:10,]
-rawdata_paper[1:10,]
-colnames(rawdata_paper)[2:9] <- c("WT_1_p", "WT_2_p","WT_3_p","WT_4_p","KO_1_p", "KO_2_p", "KO_3_p", "KO_4_p")
+colnames(rawdata_paper)[2:9] <- c("WT_1_p", "WT_2_p","WT_3_p","WT_4_p",
+                                  "KO_1_p", "KO_2_p", "KO_3_p", "KO_4_p")
 rawdata_paper$gene_id <- rawdata_paper$id
 
 Normalized_rawdata %>% 
@@ -323,8 +325,19 @@ df_result %>%
 write.table(DEG_list_down, file = "Result/DEG_list_down.txt", 
             row.names = F, col.names = F, quote = F) 
 
+DAVIT_Down_BP <- read_delim("Webresult/DAVIT_Down_BP.txt", 
+                            "\t", escape_double = FALSE, trim_ws = TRUE)
 
-# GSEA Gene set enrichment analysis ----------------------------------------------------------------------------
+tmp1 <- grep_chr_1(DAVIT_Down_BP$Term, "~") 
+tmp2 <- grep_chr_2(DAVIT_Down_BP$Term, "~") 
+DAVIT_Down_BP$Term_id <- tmp1
+DAVIT_Down_BP$Term_name <- tmp2
+
+DAVIT_Down_BP <- DAVIT_Down_BP %>% 
+    dplyr::select(Term_id, Term_name, 4:13) 
+
+
+# Enrichment analysis ----------------------------------------------------------------------------------------------
 library(clusterProfiler)
 library(org.Mm.eg.db)
 
@@ -335,7 +348,48 @@ DisOnt <- read_delim("X:/Bioinfomatics/Data/Annotation/all_gene_disease_associat
 disease2gene <- DisOnt[, c("diseaseId", "geneId")]
 disease2name <- DisOnt[, c("diseaseId", "diseaseName")]
 
-# make Gene list --------------------------
+head(MSigDB_c5)
+# make Backgrounf Gene list -----------------------------------------------------------------------------------
+universe <- read_delim("all_gene.txt", "\t",
+                       escape_double = FALSE, col_names = FALSE,
+                       trim_ws = TRUE)
+universe <- toupper(tmp$external_gene_name)
+
+# for GSEA ----------------------------------------------------------------------------------------------------
+df_result %>% 
+    getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
+          filters = "ensembl_gene_id",
+          values = .$gene_id,
+          mart = Mg) -> tmp
+write.table(tmp, "Result/df_result_allgene.txt", 
+            sep = "\t", quote = FALSE, col.names = T, row.names = F)
+
+df_result_allgene <- read_delim("Result/df_result_allgene.txt", 
+                                "\t", escape_double = FALSE, trim_ws = TRUE)
+colnames(df_result_allgene)[1]  <-　"gene_id"
+df_result %>% left_join(., df_result_allgene) -> df_result_allgene
+
+df_result_allgene %>% dplyr::select(gene_id, external_gene_name, m.value) -> tmp
+tmp[!duplicated(tmp$gene_id),] -> tmp
+tmp[!duplicated(tmp$external_gene_name),] -> tmp
+tmp[duplicated(tmp$external_gene_name),1]
+
+geneList_GSEA <- tmp$m.value
+# geneList_GSEA <- tmp$q.value
+names(geneList_GSEA) <- as.character(toupper(tmp$external_gene_name))
+geneList_GSEA <- sort(geneList_GSEA, decreasing = TRUE)       
+geneList_GSEA
+geneList_GSEA[which(duplicated(names(geneList_GSEA)))]
+
+tmp2 <- tmp %>% dplyr::select(entrezgene, m.value)
+tmp2 <- na.omit(tmp2)
+
+names(geneList_gseGO) <- as.character(tmp2$entrezgene)
+geneList_gseGO <- sort(geneList_gseGO, decreasing = TRUE)       
+geneList_gseGO
+
+
+# for Over expression Analysis  -----------------------------------------------------------------------------
 df_result %>% dplyr::filter(q.value < param_FDR) %>% 
     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
           filters = "ensembl_gene_id",
@@ -351,54 +405,34 @@ df_result %>%
                   external_gene_name,
                   m.value) -> d
 
-d %>% dplyr::filter(!is.na(entrezgene)) -> tmp
-geneList_GSEA <- tmp$m.value
-names(geneList_GSEA) <- as.character(toupper(tmp$entrezgene))
-geneList_GSEA = sort(geneList_GSEA, decreasing = TRUE)       # for GSEA
-
 d %>% dplyr::filter(m.value < 0) -> tmp
-geneList_OA_down <- 
-geneList_OA_down_symbol <- toupper(tmp$external_gene_name)          # for OA down, with Gene symbol
-geneList_OA_down_entrezgene <- tmp$entrezgene                # for OA down, with Entrez gene ID
+geneList_OA_down_Ensemble   <- tmp$gene_id                      # for OA down, with Ensemble
+geneList_OA_down_symbol     <- toupper(tmp$external_gene_name)  # for OA down, with Gene symbol
+geneList_OA_down_entrezgene <- tmp$entrezgene                   # for OA down, with Entrez gene ID
 
+d %>% dplyr::filter(m.value > 0) -> tmp
+geneList_OA_up_Ensemble   <- tmp$gene_id                        # for OA up, with Ensemble
+geneList_OA_up_symbol     <- toupper(tmp$external_gene_name)    # for OA up, with Gene symbol
+geneList_OA_up_entrezgene <- tmp$entrezgene                     # for OA up, with Entrez gene ID
 
-d %>% dplyr::filter(m.value < 0) -> tmp
-geneList_OA_down <- toupper(tmp$external_gene_name)          # for OA down
-
-
-
-
-
-## GSEA -----------------------------------
-df_result %>% dplyr::filter(q.value < param_FDR) %>% 
-    getBM(attributes = c("ensembl_gene_id","external_gene_name"),
-          filters = "ensembl_gene_id",
-          values = .,
-          mart = Mg) -> tmp
-colnames(tmp)[1]  <-　"gene_id"
-df_result %>% 
-    dplyr::filter(q.value < param_FDR) %>% 
-    dplyr::arrange(desc(m.value)) %>% 
-    left_join(., tmp) %>% 
-    dplyr::select(external_gene_name, m.value) -> d
-write.table(d[,1], "Result/DEG_list.txt", sep = "\t", row.names = F, quote = F, col.names = F) 
-
-geneList <- d$m.value
-names(geneList) <- as.character(toupper(d$external_gene_name))
-geneList = sort(geneList, decreasing = TRUE)
-head(geneList)
-
-res_GSEA <- GSEA(geneList = geneList,
+## GSEA -----------------------------------------------------------------------------------------
+res_GSEA <- GSEA(geneList = geneList_GSEA,
             exponent = 1,
             nPerm        = 1000,
             minGSSize    = 10,
-            maxGSSize    = 10000,
-            pvalueCutoff = 0.05,
+            maxGSSize    = 500,
+            pvalueCutoff = 1,
             pAdjustMethod = "BH",
             verbose      = TRUE,
-            # by = "DOSE",
+            by = "fgsea",
             TERM2GENE = MSigDB_c5
             )
+res_GSEA@result$ID[1:10]
+gseaplot(res_GSEA, res_GSEA@result$ID[1])
+
+write.table(summary(res_GSEA), "Result/GSEA.txt", sep = "\t",row.names = F,quote = F)
+dim()
+
 
 
 ## gseGO ----------------------------------
@@ -421,11 +455,11 @@ names(geneList) <- as.character(toupper(d$entrezgene))
 geneList = sort(geneList, decreasing = TRUE)
 geneList
 
-res_gseGO <- gseGO(geneList = geneList,
+res_gseGO <- gseGO(geneList = geneList_gseGO,
                    ont = "BP",
                    OrgDb = "org.Mm.eg.db",
                    exponent = 1,
-                   nPerm        = 10000,
+                   nPerm        = 1000,
                    minGSSize    = 10,
                    maxGSSize    = 1000,
                    pvalueCutoff = 0.05,
@@ -479,20 +513,10 @@ geneList <- toupper(d$external_gene_name)
 length(geneList)
 head(geneList)
 
-# rawdata %>% 
-#     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
-#           filters = "ensembl_gene_id",
-#           values = .,
-#           mart = Mg) -> tmp
-# colnames(tmp)[1]  <-　"gene_id"
-# write.table(tmp, "all_gene.txt", sep = "\t", quote = FALSE, col.names = FALSE)
 
 
-universe <- read_delim("all_gene.txt", "\t",
-                       escape_double = FALSE, col_names = FALSE,
-                       trim_ws = TRUE)
-universe <- toupper(tmp$external_gene_name)
-universe    
+
+
 res_enrich_MSigDB_c5 <- enricher(gene = geneList,
                                  minGSSize = 10,
                                  pvalueCutoff = 0.05,
