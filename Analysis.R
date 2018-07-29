@@ -4,7 +4,15 @@ library(TCC)
 library(Biostrings)
 library(biomaRt)
 library(gplots)
+library(VennDiagram)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(MeSH.db)
+library(meshr)
+library(fdrtool)
+library(MeSH.Mmu.eg.db)
 library(tidyverse)
+
 ## my function ---------------------------
 grep_chr_1 <- function(x, y){   #ハイフンから前
     a <- str_locate(x, y)
@@ -120,7 +128,7 @@ Group <- c("WT","WT","WT","WT","KO","KO","KO","KO")       # set Group
 in_f <- DEG_rawdata                        
 out_f <- "Result/df_result.txt"
 param_method <- "edger"
-param_FDR <- 0.1
+param_FDR <- 0.25
 
 ## Excution -------------------------------
 tcc <- new("TCC", in_f, Group)
@@ -144,30 +152,56 @@ write.table(df_result, out_f, sep = "\t", row.names = F)
 
 df_result %>%
   dplyr::select(-(2:6)) %>% 
-  dplyr::filter(q.value < 0.1) -> tmp
+  dplyr::filter(q.value < param_FDR) -> tmp
 write.table(tmp, "Result/df_result_2.txt",sep = "\t", quote = F, row.names = F)
 # df_result %>% 
 #     dplyr::filter(q.value < 0.05) %>% dim() 
 # 
 df_result %>%
-    dplyr::filter(q.value < 0.1) %>% dim()
+    dplyr::filter(q.value < 0.25) %>% dim()
 
 ## make MAplot -----------------------------------------------
-png("Result/MAplot.png", height = 3000, width = 3000, res = 300)
-plot(tcc)
-dev.off()
+out_f2 <- "Result/MAplot_rev2.png"                  #出力ファイル名を指定してout_f2に格納
+param_fig <- c(3000, 3000, 300)               #ファイル出力時の横幅と縦幅を指定(単位はピクセル)
+param_mar <- c(4, 4, 0, 0)             #下、左、上、右の順で余白を指定(単位は行)
+param_col <- "magenta"                 #色を指定
+param_cex <- 3                       #点の大きさを指定(2なら通常の2倍、0.5なら通常の0.5倍)
+param_pch <- 15                        #点の形状を指定(詳細はこちらとか)
+
+png(out_f2, 
+    pointsize=13,
+    width=param_fig[1],
+    height=param_fig[2],
+    res = param_fig[3])#出力ファイルの各種パラメータを指定
+par(mar=param_mar)                     #余白を指定
+plot(tcc, 
+     FDR=param_FDR, 
+     xlim=c(-2, 20), 
+     ylim=c(-4.5, 4.5),
+     cex=1.2, cex.lab=1.2,                #param_FDRで指定した閾値を満たすDEGをマゼンタ色にして描画
+     cex.axis=1.2, main="",               #param_FDRで指定した閾値を満たすDEGをマゼンタ色にして描画
+     xlab="A = (log2(G2) + log2(G1))/2",  #param_FDRで指定した閾値を満たすDEGをマゼンタ色にして描画
+     ylab="M = log2(G2) - log2(G1)" )
+legend("topright", 
+       c(paste("DEG(FDR<", param_FDR, ")", sep=""),"non-DEG"),
+       col=c("magenta", "black"),
+       pch=20, cex=1.2)                   #凡例を作成
+dev.off()     
+
+
+# png("Result/MAplot.png", height = 3000, width = 3000, res = 300)
+# plot(tcc)
+# dev.off()
 plot(tcc)
 
 ## Get gene list --------------------------------------------
 df_result %>%  
-    dplyr::filter(q.value < 0.1) %>% 
+    dplyr::filter(q.value < param_FDR) %>% 
     dplyr::select(gene_id, m.value) -> DEG_list
 
 
 
 # VennDiagram  ------------------------------------------------------------------
-library(VennDiagram)
-
 rawdata_paper %>% dplyr::filter(BH.qvalue < 0.25) %>% 
     dplyr::filter(logFC > log10(1.6) | logFC < -log10(1.6)) -> DEG_paper
 
@@ -182,8 +216,8 @@ venn.diagram(Venn_data,
              resolution = 500,
              units = "px",
              fill=c(4,7),
-             cat.pos=c(0,20),
-             cat.dist=c(0.02,0.02),
+             cat.pos=c(0, 25),
+             cat.dist=c(0.02,0.05),
              cat.cex=c(2,2),
              cex=c(2,2,2)
 )
@@ -192,7 +226,7 @@ venn.diagram(Venn_data,
 colnames(rawdata_paper)[2:9] <- c("WT_1_p", "WT_2_p","WT_3_p","WT_4_p",
                                   "KO_1_p", "KO_2_p", "KO_3_p", "KO_4_p")
 rawdata_paper$gene_id <- rawdata_paper$id
-
+rawdata_paper
 Normalized_rawdata %>% 
   inner_join(., rawdata_paper) %>%
   dplyr::select("gene_id", "WT_1","WT_2","WT_3","WT_4","KO_1","KO_2","KO_3","KO_4",
@@ -201,15 +235,25 @@ Normalized_rawdata %>%
   dplyr::mutate(mean_KO = (KO_1 + KO_2 + KO_3 + KO_4)/4) %>% 
   dplyr::mutate(mean_WT_p = (WT_1_p + WT_2_p + WT_3_p + WT_4_p)/4) %>% 
   dplyr::mutate(mean_KO_p = (KO_1_p + KO_2_p + KO_3_p + KO_4_p)/4) %>% 
-  dplyr::select(gene_id, mean_WT,mean_KO, mean_WT_p, mean_KO_p) -> df_schatter
+  dplyr::select(gene_id, mean_WT,mean_KO, mean_WT_p, mean_KO_p) %>% 
+  dplyr::arrange(desc(mean_WT)) -> df_schatter
 df_schatter[,-1] <- round(df_schatter[,-1], 2)
 head(df_schatter)
+
+res <- lm(df_schatter[1000:dim(df_schatter)[1],]$mean_WT ~ df_schatter[1000:dim(df_schatter)[1],]$mean_WT_p)
+summary(res)
+res$coefficients
+res <- lm(df_schatter[1000:dim(df_schatter)[1],]$mean_KO ~ df_schatter[1000:dim(df_schatter)[1],]$mean_KO_p)
+summary(res)
+res$coefficients
+
+
 
 g <-ggplot(df_schatter, aes(x=mean_WT_p, y=mean_WT_p)) +
   geom_point() +
   geom_hline(yintercept=0) + geom_vline(xintercept=0) +
-  xlab("Fold Change in paper data") +
-  ylab("Fold Change in my analysis") +
+  xlab("FPRM in paper data") +
+  ylab("FPRM in my analysis") +
   theme(panel.background=element_rect(fill="white"),
         axis.line=element_line(colour="black"),
         axis.title=element_text(size=10),
@@ -224,8 +268,8 @@ ggsave(filename = "Result/Schatter_plot_WT.tiff", plot = g,
 g <-ggplot(df_schatter, aes(x=mean_KO_p, y=mean_KO)) +
   geom_point() +
   geom_hline(yintercept=0) + geom_vline(xintercept=0) +
-  xlab("Fold Change in paper data") +
-  ylab("Fold Change in my analysis") +
+  xlab("FPRM in paper data") +
+  ylab("FPRM in my analysis") +
   theme(panel.background=element_rect(fill="white"),
         axis.line=element_line(colour="black"),
         axis.title=element_text(size=10),
@@ -235,6 +279,41 @@ g
 ggsave(filename = "Result/Schatter_plot_KO.tiff", plot = g,
        width = 128, height = 128, 
        units = ("mm"), dpi = 300)
+
+g <-ggplot(df_schatter[10:dim(df_schatter)[1],], aes(x=mean_WT_p, y=mean_WT_p)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    geom_hline(yintercept=0) + geom_vline(xintercept=0) +
+    xlab("FPRM in paper data") +
+    ylab("FPRM in my analysis") +
+    theme(panel.background=element_rect(fill="white"),
+          axis.line=element_line(colour="black"),
+          axis.title=element_text(size=10),
+          axis.text=element_text(size=10)
+    )
+g
+ggsave(filename = "Result/Schatter_plot_WT_cut10.tiff", plot = g,
+       width = 128, height = 128, 
+       units = ("mm"), dpi = 300)
+
+
+g <-ggplot(df_schatter[10:dim(df_schatter)[1],], aes(x=mean_KO_p, y=mean_KO)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    geom_hline(yintercept=0) + geom_vline(xintercept=0) +
+    xlab("FPRM in paper data") +
+    ylab("FPRM in my analysis") +
+    theme(panel.background=element_rect(fill="white"),
+          axis.line=element_line(colour="black"),
+          axis.title=element_text(size=10),
+          axis.text=element_text(size=10)
+    )
+g
+ggsave(filename = "Result/Schatter_plot_KO_cut10.tiff", plot = g,
+       width = 128, height = 128, 
+       units = ("mm"), dpi = 300)
+
+
 
 # Clustering Samples --------------------------------------------------------
 head(Normalized_rawdata) 
@@ -251,7 +330,7 @@ plot(tmp)
 
 # heat map ---------------------------------------------------------------------
 df_result %>%
-    dplyr::filter(q.value < 0.1) %>% 
+    dplyr::filter(q.value < param_FDR) %>% 
     dplyr::select(gene_id, 
            WT_1, WT_2, WT_3, WT_4,
            KO_1, KO_2, KO_3, KO_4) -> df_heatmap
@@ -277,7 +356,7 @@ heatmap(as.matrix(df_heatmap),Colv = NA)
 
 
 pdf(file = "Result/Cluster.pdf",
-     width = 6, height = 18) # defaults to 7 x 7 inches
+     width = 6, height = 25) # defaults to 7 x 7 inches
 
 lm<-matrix(c(0,2,3,1,4,0),ncol=3)
 heatmap.2(as.matrix(df_heatmap),
@@ -294,7 +373,7 @@ heatmap.2(as.matrix(df_heatmap),
           cexRow=1,
           margin=c(4,8),
           main="Heat Map 2 (Z score Data)",
-          lmat=lm,lwid=c(1,5,2),lhei=c(1,9)
+          lmat=lm,lwid=c(1,4,2),lhei=c(1,9)
 )
 dev.off() 
 
@@ -335,12 +414,10 @@ DAVIT_Down_BP$Term_name <- tmp2
 
 DAVIT_Down_BP <- DAVIT_Down_BP %>% 
     dplyr::select(Term_id, Term_name, 4:13) 
-
+write.table(DAVIT_Down_BP, "Result/DAVIT_Down_BP.txt", sep = "\t",
+            quote = F, row.names = F)
 
 # Enrichment analysis ----------------------------------------------------------------------------------------------
-library(clusterProfiler)
-library(org.Mm.eg.db)
-
 MSigDB_c5 <- read.gmt("X:/Bioinfomatics/Data/Annotation/c5.all.v6.2.symbols.gmt")
 MSigDB_c2 <- read.gmt("X:/Bioinfomatics/Data/Annotation/c2.all.v6.2.symbols.gmt")
 DisOnt <- read_delim("X:/Bioinfomatics/Data/Annotation/all_gene_disease_associations.tsv", 
@@ -350,19 +427,27 @@ disease2name <- DisOnt[, c("diseaseId", "diseaseName")]
 
 head(MSigDB_c5)
 # make Backgrounf Gene list -----------------------------------------------------------------------------------
-universe <- read_delim("all_gene.txt", "\t",
-                       escape_double = FALSE, col_names = FALSE,
-                       trim_ws = TRUE)
-universe <- toupper(tmp$external_gene_name)
+df_result_allgene <- read_delim("Result/df_result_allgene.txt", 
+                                "\t", escape_double = FALSE, trim_ws = TRUE)
+colnames(df_result_allgene)[1]  <-　"gene_id"
+df_result %>% left_join(., df_result_allgene) -> df_result_allgene
+universe_symbol <- toupper(df_result_allgene$external_gene_name)
+universe_Ensambl <- toupper(df_result_allgene$gene_id)
+
+df_result_allgene %>% dplyr::select(entrezgene, m.value) -> tmp
+tmp <- na.omit(tmp)
+tmp[!duplicated(tmp$entrezgene),] -> tmp
+universe_entranz <- tmp$entrezgene
 
 # for GSEA ----------------------------------------------------------------------------------------------------
-df_result %>% 
-    getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
-          filters = "ensembl_gene_id",
-          values = .$gene_id,
-          mart = Mg) -> tmp
-write.table(tmp, "Result/df_result_allgene.txt", 
-            sep = "\t", quote = FALSE, col.names = T, row.names = F)
+
+# df_result %>% 
+#     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
+#           filters = "ensembl_gene_id",
+#           values = .$gene_id,
+#           mart = Mg) -> tmp
+# write.table(tmp, "Result/df_result_allgene.txt", 
+#             sep = "\t", quote = FALSE, col.names = T, row.names = F)
 
 df_result_allgene <- read_delim("Result/df_result_allgene.txt", 
                                 "\t", escape_double = FALSE, trim_ws = TRUE)
@@ -375,19 +460,15 @@ tmp[!duplicated(tmp$external_gene_name),] -> tmp
 tmp[duplicated(tmp$external_gene_name),1]
 
 geneList_GSEA <- tmp$m.value
-# geneList_GSEA <- tmp$q.value
 names(geneList_GSEA) <- as.character(toupper(tmp$external_gene_name))
 geneList_GSEA <- sort(geneList_GSEA, decreasing = TRUE)       
-geneList_GSEA
-geneList_GSEA[which(duplicated(names(geneList_GSEA)))]
 
-tmp2 <- tmp %>% dplyr::select(entrezgene, m.value)
-tmp2 <- na.omit(tmp2)
-
-names(geneList_gseGO) <- as.character(tmp2$entrezgene)
+df_result_allgene %>% dplyr::select(entrezgene, m.value) -> tmp
+tmp <- na.omit(tmp)
+tmp[!duplicated(tmp$entrezgene),] -> tmp
+geneList_gseGO <- tmp$m.value
+names(geneList_gseGO) <- as.character(tmp$entrezgene)
 geneList_gseGO <- sort(geneList_gseGO, decreasing = TRUE)       
-geneList_gseGO
-
 
 # for Over expression Analysis  -----------------------------------------------------------------------------
 df_result %>% dplyr::filter(q.value < param_FDR) %>% 
@@ -408,12 +489,20 @@ df_result %>%
 d %>% dplyr::filter(m.value < 0) -> tmp
 geneList_OA_down_Ensemble   <- tmp$gene_id                      # for OA down, with Ensemble
 geneList_OA_down_symbol     <- toupper(tmp$external_gene_name)  # for OA down, with Gene symbol
-geneList_OA_down_entrezgene <- tmp$entrezgene                   # for OA down, with Entrez gene ID
+
+tmp %>% 
+    dplyr::select(entrezgene) %>%
+    na.omit() %>% 
+    .[!duplicated(.$entrezgene),] -> geneList_OA_down_entrezgene # for OA down, with Entrez gene ID
 
 d %>% dplyr::filter(m.value > 0) -> tmp
 geneList_OA_up_Ensemble   <- tmp$gene_id                        # for OA up, with Ensemble
 geneList_OA_up_symbol     <- toupper(tmp$external_gene_name)    # for OA up, with Gene symbol
-geneList_OA_up_entrezgene <- tmp$entrezgene                     # for OA up, with Entrez gene ID
+
+tmp %>% 
+    dplyr::select(entrezgene) %>%
+    na.omit() %>% 
+    .[!duplicated(.$entrezgene),] -> geneList_OA_up_entrezgene # for OA up, with Entrez gene ID
 
 ## GSEA -----------------------------------------------------------------------------------------
 res_GSEA <- GSEA(geneList = geneList_GSEA,
@@ -429,32 +518,10 @@ res_GSEA <- GSEA(geneList = geneList_GSEA,
             )
 res_GSEA@result$ID[1:10]
 gseaplot(res_GSEA, res_GSEA@result$ID[1])
-
-write.table(summary(res_GSEA), "Result/GSEA.txt", sep = "\t",row.names = F,quote = F)
-dim()
-
-
+write.table(res_GSEA@result, "Result/GSEA.txt", sep = "\t",row.names = F,quote = F)
+dim(res_GSEA@result)
 
 ## gseGO ----------------------------------
-df_result %>% dplyr::filter(q.value < param_FDR) %>% 
-    getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
-          filters = "ensembl_gene_id",
-          values = .,
-          mart = Mg) -> tmp
-colnames(tmp)[1]  <-　"gene_id"
-df_result %>% 
-    dplyr::filter(q.value < param_FDR) %>% 
-    dplyr::arrange(desc(m.value)) %>% 
-    left_join(., tmp) %>% 
-    dplyr::select(gene_id,entrezgene,external_gene_name, m.value) -> d
-
-d %>% dplyr::filter(!is.na(entrezgene)) -> d
-
-geneList <- d$m.value
-names(geneList) <- as.character(toupper(d$entrezgene))
-geneList = sort(geneList, decreasing = TRUE)
-geneList
-
 res_gseGO <- gseGO(geneList = geneList_gseGO,
                    ont = "BP",
                    OrgDb = "org.Mm.eg.db",
@@ -462,168 +529,251 @@ res_gseGO <- gseGO(geneList = geneList_gseGO,
                    nPerm        = 1000,
                    minGSSize    = 10,
                    maxGSSize    = 1000,
-                   pvalueCutoff = 0.05,
+                   pvalueCutoff = 1,
                    pAdjustMethod = "BH",
                    verbose      = TRUE
                    )
+gseaplot(res_gseGO, res_gseGO@result$ID[1])
+write.table(res_gseGO@result, "Result/gesGO.txt", sep = "\t",row.names = F,quote = F)
 
-res_gseGO <- gseGO(geneList = geneList,
+
+res_gseGO_CC <- gseGO(geneList = geneList_gseGO,
                    ont = "CC",
                    OrgDb = "org.Mm.eg.db",
                    exponent = 1,
                    nPerm        = 10000,
                    minGSSize    = 10,
                    maxGSSize    = 1000,
-                   pvalueCutoff = 0.05,
+                   pvalueCutoff = 1,
                    pAdjustMethod = "BH",
                    verbose      = TRUE
                    )
 
-res_gseGO <- gseGO(geneList = geneList,
+res_gseGO_MF <- gseGO(geneList = geneList_gseGO,
                    ont = "MF",
                    OrgDb = "org.Mm.eg.db",
                    exponent = 1,
                    nPerm        = 10000,
                    minGSSize    = 10,
                    maxGSSize    = 1000,
-                   pvalueCutoff = 0.05,
+                   pvalueCutoff = 1,
                    pAdjustMethod = "BH",
                    verbose      = TRUE
                    )
 
-
-
 ## GO over-representation test ---------------------------------------------------------
-df_result %>% dplyr::filter(q.value < param_FDR) %>% 
-    dplyr::filter(m.value < 0) %>% 
-    getBM(attributes = c("ensembl_gene_id","external_gene_name"),
-          filters = "ensembl_gene_id",
-          values = .,
-          mart = Mg) -> tmp
-colnames(tmp)[1]  <-　"gene_id"
-head(tmp)
-dim(tmp)
-df_result %>% 
-    dplyr::filter(q.value < param_FDR) %>% 
-    dplyr::arrange(desc(m.value)) %>% 
-    right_join(., tmp) %>% 
-    dplyr::select(external_gene_name, m.value) -> d
-write.table(d[,1], "Result/DEG_list.txt", sep = "\t", row.names = F, quote = F, col.names = F) 
-geneList <- toupper(d$external_gene_name)
-length(geneList)
-head(geneList)
-
-
-
-
-
-res_enrich_MSigDB_c5 <- enricher(gene = geneList,
+res_enrich_MSigDB_c5 <- enricher(gene = geneList_OA_down_symbol,
+                                 universe = universe_symbol,
                                  minGSSize = 10,
                                  pvalueCutoff = 0.05,
                                  pAdjustMethod = "BH",
-                                 qvalueCutoff = 0.2,
+                                 qvalueCutoff = 0.1,
                                  TERM2GENE= MSigDB_c5
                                  )
-res_enrich_MSigDB_c2 <- enricher(gene = geneList,
-                                 # universe = universe,
-                                 pvalueCutoff = 0.05,
-                                 minGSSize = 10,
-                                 pAdjustMethod = "BH",
-                                 qvalueCutoff = 0.2,
-                                 TERM2GENE= MSigDB_c2)
 
-head(summary(res_enrich_MSigDB_c5))
-head(summary(res_enrich_MSigDB_c2))
+png("Result/barplot_res_enrich_MSigDB_c5.png", height = 3000, width = 3000, res = 300)
 barplot(res_enrich_MSigDB_c5, showCategory=20)
-barplot(res_enrich_MSigDB_c2, showCategory=20)
+dev.off()
+barplot(res_enrich_MSigDB_c5, showCategory=20)
+write.table(res_enrich_MSigDB_c5@result, "Result/res_enrich_MSigDB_c5.txt",
+            sep = "\t", row.names = F, quote = F)
 
+res_enrich_GO <- enrichGO(gene = geneList_OA_down_Ensemble,
+                          universe = universe_Ensambl,
+                          OrgDb    = org.Mm.eg.db,
+                          keyType       = 'ENSEMBL',
+                          ont           = "BP",
+                          pvalueCutoff = 0.05,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.1)
+png("Result/barplot_res_enrich_GO.png", height = 3000, width = 3000, res = 300)
+barplot(res_enrich_GO, showCategory=20)
+dev.off()
+barplot(res_enrich_GO, showCategory=20)
 
 ## KEGG over-representation test ---------------------------------------------------------
-df_result %>% dplyr::filter(q.value < param_FDR) %>% 
-    dplyr::filter(m.value < 0) %>% 
-    getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
-          filters = "ensembl_gene_id",
-          values = .,
-          mart = Mg) -> tmp
-colnames(tmp)[1]  <-　"gene_id"
-df_result %>% 
-    dplyr::filter(q.value < param_FDR) %>% 
-    dplyr::arrange(desc(m.value)) %>% 
-    left_join(., tmp) %>% 
-    dplyr::select(gene_id,entrezgene,external_gene_name, m.value) -> d
-
-d %>% dplyr::filter(!is.na(entrezgene)) -> d
-geneList <- d$entrezgene
-
-res_enrich_KEGG <- enrichKEGG(gene = geneList,
+res_enrich_KEGG <- enrichKEGG(gene = geneList_OA_down_entrezgene,
                               organism = 'mmu',
-                              pvalueCutoff = 0.05)
+                              minGSSize = 10,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "BH",
+                              qvalueCutoff = 0.1)
+write.table(res_enrich_KEGG@result, "Result/res_enrich_KEGG.txt",
+            sep = "\t", row.names = F, quote = F)
 
-head(res_enrich_KEGG)
-
-
-
-
-
-
-
-
-
+res_enrich_KEGG@result
+browseKEGG(res_enrich_KEGG, res_enrich_KEGG@result$ID[1])
+res_enrich_KEGG@result$geneID
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 
-# # Disease Ontrogy enrichment analysis ------------------------------------------------
-# df_result %>% dplyr::filter(q.value < param_FDR) %>% 
+## Meshr enrichent analysis --------------------------------------------------------------
+# rawdata_paper %>%
 #     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
 #           filters = "ensembl_gene_id",
-#           values = .,
+#           values = .$id,
 #           mart = Mg) -> tmp
-# colnames(tmp)[1]  <-　"gene_id"
-# df_result %>% 
-#     dplyr::filter(q.value < param_FDR) %>% 
-#     dplyr::arrange(desc(m.value)) %>% 
-#     left_join(., tmp) %>% 
-#     dplyr::select(gene_id,entrezgene,external_gene_name, m.value) -> d
-# 
-# d %>% dplyr::filter(!is.na(entrezgene)) -> d
-# 
-# deg <- as.character(d$entrezgene)
-# head(geneList)
-# str(geneList)
-# read_delim("all_gene.txt", "\t", 
-#            escape_double = FALSE, col_names = FALSE, 
-#            trim_ws = TRUE) %>%
-#     dplyr::filter(!is.na(X4)) -> universe
-# 
-# deg <- universe$X4[1:1000]
-# deg
-# res_DisOn <- enricher(gene = deg,
-#                       pvalueCutoff = 0.00001,
-#                       pAdjustMethod = "BH",
-#                       qvalueCutoff = 0.00005,
-#                       TERM2GENE = disease2gene,
-#                       TERM2NAME = disease2name 
-#                       )
-# summary(res_DisOn)
+# write.table(tmp, "Result/df_result__paper_allgene.txt",
+#             sep = "\t", quote = FALSE, col.names = T, row.names = F)
+df_result_paper_allgene <- read_delim("Result/df_result__paper_allgene.txt", 
+                                      "\t", escape_double = FALSE, trim_ws = TRUE)
+colnames(df_result_paper_allgene)[1]  <-　"gene_id"
+rawdata_paper %>% 
+    dplyr::filter(BH.qvalue < 0.25) %>%  
+    left_join(., df_result_paper_allgene) %>% 
+    dplyr::select(gene_id,
+                  entrezgene,
+                  external_gene_name,
+                  logFC) -> d
+d %>% dplyr::filter(logFC < 0) -> tmp
+geneList_Paper_down_Ensemble   <- tmp$gene_id                      # for OA down, with Ensemble
+geneList_Paper_down_symbol     <- toupper(tmp$external_gene_name)  # for OA down, with Gene symbol
+tmp %>% 
+    dplyr::select(entrezgene) %>%
+    na.omit() %>% 
+    .[!duplicated(.$entrezgene),] -> tmp
+geneList_Paper_down_entrezgene <- tmp$entrezgene # for OA down, with Gene symbol
+
+df_result_paper_allgene %>% 
+    na.omit() %>% 
+    .[!duplicated(.$entrezgene),] -> tmp
+universe_paper_entranz <- tmp$entrezgene
+    
 
 
+
+
+meshParams <- new("MeSHHyperGParams", 
+                  geneIds = sig.geneid.cummeRbund[,2], 
+                  universeGeneIds = geneid.cummeRbund[, 2],
+                  annotation = "MeSH.Hsa.eg.db",
+                  category = "C",
+                  database = "gendoo",
+                  pvalueCutoff = 0.05,
+                  pAdjust = "none")
+
+meshR <- meshHyperGTest(meshParams)
+head(summary(meshR))
+
+
+meshParams <- new("MeSHHyperGParams", 
+                  geneIds = geneList_OA_up_entrezgene, 
+                  universeGeneIds = universe_entranz,
+                  annotation = "MeSH.Mmu.eg.db",
+                  category = "F",
+                  database = "gene2pubmed",
+                  pvalueCutoff = 0.05,
+                  pAdjust = "none")
+
+meshParams <- new("MeSHHyperGParams", 
+                  geneIds = geneList_Paper_down_entrezgene, 
+                  universeGeneIds = universe_paper_entranz,
+                  annotation = "MeSH.Mmu.eg.db",
+                  category = "F",
+                  database = "gene2pubmed",
+                  pvalueCutoff = 0.05,
+                  pAdjust = "none")
+
+
+meshR <- meshHyperGTest(meshParams)
+write.table(meshR@ORA, "Result/meshr.txt",
+            sep = "\t", row.names = F, quote = F)
+
+
+
+unique(meshR@ORA$MESHTERM)
+
+head(summary(meshR))
+
+## hypergeometrix with same database --------------------------------------------------------
+Schizo_gene_list <- read_delim("Webresult/Schizo_gene_list.txt", 
+                               "\t", escape_double = FALSE, trim_ws = TRUE)
+head(Schizo_gene_list)
+
+X <- c(geneList_OA_down_symbol, geneList_OA_up_symbol)
+
+X <- geneList_Paper_down_entrezgene
+X <- data.frame("Gene" = X)
+X$Gene <- as.character(X$Gene)
+str(X)
+N <- universe_symbol
+N <- data.frame("Gene" = N)
+N$Gene <- as.character(N$Gene)
+str(N)
+Schizo_gene_list
+SZ <- Schizo_gene_list %>% 
+    dplyr::select(Gene) %>% 
+    data.frame()
+colnames(SZ) <- "Gene"
+str(SZ)
+
+dim(N)
+dim(SZ)
+SZ %>% 
+    inner_join(., N) %>% 
+    dim() -> n
+
+SZ %>% 
+    inner_join(., X) %>% 
+    dim() -> x
+
+N <- dim(N)[1]
+n <- n[1]
+X <- dim(X)[1]
+x <- x[1]
+
+sum(dhyper(x = x:X,
+           m = n,
+           n = N-n,
+           k = X
+           ))
+
+## hypergeometrix with same database --------------------------------------------------------
+Schizo_DEG_list <- read_delim("Webresult/Schizo_DEG_list.txt", 
+                               "\t", escape_double = FALSE, trim_ws = TRUE)
+head(Schizo_DEG_list)
+
+X <- c(geneList_OA_down_symbol, geneList_OA_up_symbol)
+
+X <- geneList_Paper_down_entrezgene
+X <- data.frame("Gene" = X)
+X$Gene <- as.character(X$Gene)
+str(X)
+N <- universe_symbol
+N <- data.frame("Gene" = N)
+N$Gene <- as.character(N$Gene)
+str(N)
+
+SZ <- Schizo_DEG_list %>% 
+    dplyr::select(Gene) %>% 
+    data.frame()
+colnames(SZ) <- "Gene"
+SZ$Gene <- toupper(SZ$Gene)
+str(SZ)
+
+dim(N)
+dim(SZ)
+SZ %>% 
+    inner_join(., N) %>% 
+    dim() -> n
+n
+SZ %>% 
+    inner_join(., X) %>% 
+    dim() -> x
+x
+N <- dim(N)[1]
+n <- n[1]
+X <- dim(X)[1]
+x <- x[1]
+
+sum(dhyper(x = x:X,
+           m = n,
+           n = N-n,
+           k = X
+))
+
+
+
+
+n[1]/dim(N)[1]
+x[1]/dim(X)[1]
