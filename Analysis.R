@@ -417,6 +417,7 @@ DAVIT_Down_BP <- DAVIT_Down_BP %>%
 write.table(DAVIT_Down_BP, "Result/DAVIT_Down_BP.txt", sep = "\t",
             quote = F, row.names = F)
 
+
 # Enrichment analysis ----------------------------------------------------------------------------------------------
 MSigDB_c5 <- read.gmt("X:/Bioinfomatics/Data/Annotation/c5.all.v6.2.symbols.gmt")
 MSigDB_c2 <- read.gmt("X:/Bioinfomatics/Data/Annotation/c2.all.v6.2.symbols.gmt")
@@ -517,6 +518,7 @@ res_GSEA <- GSEA(geneList = geneList_GSEA,
             TERM2GENE = MSigDB_c5
             )
 res_GSEA@result$ID[1:10]
+barplot(res_GSEA, showCategory=20)
 gseaplot(res_GSEA, res_GSEA@result$ID[1])
 write.table(res_GSEA@result, "Result/GSEA.txt", sep = "\t",row.names = F,quote = F)
 dim(res_GSEA@result)
@@ -533,7 +535,9 @@ res_gseGO <- gseGO(geneList = geneList_gseGO,
                    pAdjustMethod = "BH",
                    verbose      = TRUE
                    )
-gseaplot(res_gseGO, res_gseGO@result$ID[1])
+png("Result/GSEAplot.png", height = 2000, width = 3000, res = 300)
+gseaplot(res_gseGO, res_gseGO@result$ID[2])
+dev.off()
 write.table(res_gseGO@result, "Result/gesGO.txt", sep = "\t",row.names = F,quote = F)
 
 
@@ -586,8 +590,8 @@ res_enrich_GO <- enrichGO(gene = geneList_OA_down_Ensemble,
                           pvalueCutoff = 0.05,
                           pAdjustMethod = "BH",
                           qvalueCutoff = 0.1)
-png("Result/barplot_res_enrich_GO.png", height = 3000, width = 3000, res = 300)
-barplot(res_enrich_GO, showCategory=20)
+png("Result/barplot_res_enrich_GO.png", height = 2000, width = 3000, res = 300)
+barplot(res_enrich_GO, showCategory=10)
 dev.off()
 barplot(res_enrich_GO, showCategory=20)
 
@@ -685,14 +689,12 @@ unique(meshR@ORA$MESHTERM)
 
 head(summary(meshR))
 
-## hypergeometrix with same database --------------------------------------------------------
+## hypergeometrix with database --------------------------------------------------------------
 Schizo_gene_list <- read_delim("Webresult/Schizo_gene_list.txt", 
                                "\t", escape_double = FALSE, trim_ws = TRUE)
 head(Schizo_gene_list)
 
 X <- c(geneList_OA_down_symbol, geneList_OA_up_symbol)
-
-X <- geneList_Paper_down_entrezgene
 X <- data.frame("Gene" = X)
 X$Gene <- as.character(X$Gene)
 str(X)
@@ -718,10 +720,13 @@ SZ %>%
     dim() -> x
 
 N <- dim(N)[1]
+N
 n <- n[1]
+n
 X <- dim(X)[1]
+X
 x <- x[1]
-
+x
 sum(dhyper(x = x:X,
            m = n,
            n = N-n,
@@ -729,13 +734,10 @@ sum(dhyper(x = x:X,
            ))
 
 ## hypergeometrix with same database --------------------------------------------------------
-Schizo_DEG_list <- read_delim("Webresult/Schizo_DEG_list.txt", 
-                               "\t", escape_double = FALSE, trim_ws = TRUE)
-head(Schizo_DEG_list)
-
+ASD_gene <- read_csv("Webresult/ASD_gene.txt", 
+                     col_names = FALSE) %>% data.frame()
+ASD_gene$X1 <- as.character(ASD_gene$X1)
 X <- c(geneList_OA_down_symbol, geneList_OA_up_symbol)
-
-X <- geneList_Paper_down_entrezgene
 X <- data.frame("Gene" = X)
 X$Gene <- as.character(X$Gene)
 str(X)
@@ -744,27 +746,28 @@ N <- data.frame("Gene" = N)
 N$Gene <- as.character(N$Gene)
 str(N)
 
-SZ <- Schizo_DEG_list %>% 
-    dplyr::select(Gene) %>% 
-    data.frame()
-colnames(SZ) <- "Gene"
-SZ$Gene <- toupper(SZ$Gene)
-str(SZ)
+colnames(ASD_gene) <- "Gene"
+ASD_gene$Gene <- toupper(ASD_gene$Gene)
+str(ASD_gene)
 
 dim(N)
-dim(SZ)
-SZ %>% 
+dim(ASD_gene)
+ASD_gene %>% 
     inner_join(., N) %>% 
     dim() -> n
 n
-SZ %>% 
+ASD_gene %>% 
     inner_join(., X) %>% 
     dim() -> x
 x
 N <- dim(N)[1]
+N
 n <- n[1]
+n
 X <- dim(X)[1]
+X
 x <- x[1]
+x
 
 sum(dhyper(x = x:X,
            m = n,
@@ -773,7 +776,107 @@ sum(dhyper(x = x:X,
 ))
 
 
+x <- data.frame(
+    cell   = c("A", "A", "B", "B", "C", "C"),
+    sample = c("A1", "A2", "B1", "B2", "C1", "C2"),
+    weight = c(0.32, 0.33, 0.21, 0.22, 0.37, 0.36)
+)
+g <- ggplot(x, aes(x = cell, y = weight, fill = sample))
+g <- g + geom_bar(stat = "identity")
+g <- g + scale_fill_nejm()
+plot(g)
+p <- ggplot(mtcars, aes(x = as.factor(gear), fill = as.factor(vs))) +
+    geom_bar()
+p
 
 
-n[1]/dim(N)[1]
-x[1]/dim(X)[1]
+## Compare DAIV vs GSEA ------------------------------------------------------------------------------------------------
+DAVIT_Down_BP %>% dplyr::filter(Benjamini < 0.4) -> DAVIT
+dim(DAVIT)
+res_GSEA@result %>% 
+    dplyr::select(Description, qvalues) %>% 
+    dplyr::filter(qvalues < 0.4)-> res_GSEA_cut
+dim(res_GSEA_cut)
+res_GSEA_cut$Description
+res_GSEA_cut$Description <- grep_chr_2(res_GSEA_cut$Description, "_")
+res_GSEA_cut$Description <- gsub("_", " ", res_GSEA_cut$Description)
+res_GSEA_cut$Description <- tolower(res_GSEA_cut$Description)
+head(res_GSEA_cut$Description)
+colnames(DAVIT)[2] <- "Term"
+colnames(res_GSEA_cut)[1] <- "Term"
+inner_join(DAVIT, res_GSEA_cut) -> tmp
+write.table(tmp, "Result/marged_DAVID_and_GSEA.txt",
+            sep = "\t", quote = F, row.names = F)
+
+
+a <- DAVIT$Term
+b <- res_GSEA_cut$Term
+
+Venn_data <- list(DAVIT=a, GSEA=b)
+venn.diagram(Venn_data, 
+             filename = "Result/Venn_DAVITvsGSEA.tiff",
+             imagetype = "tiff",
+             height=3000, width=3000,
+             resolution = 500,
+             units = "px",
+             fill=c(4,7),
+             cat.pos=c(0, 25),
+             cat.dist=c(0.02,0.05),
+             cat.cex=c(2,2),
+             cex=c(2,2,2)
+)
+
+res_enrich_GO@result %>%
+    dplyr::filter(qvalue < 0.4) -> res_enrich_GO_cut
+colnames(res_enrich_GO_cut)[1] <- "Term_id"
+inner_join(DAVIT, res_enrich_GO_cut) -> tmp
+write.table(tmp, "Result/marged_DAVID_and_enrichGO.txt",
+            sep = "\t", quote = F, row.names = F)
+
+a <- DAVIT$Term_id
+b <- res_enrich_GO_cut$Term_id
+
+Venn_data <- list(DAVIT=a, enrichGO=b)
+venn.diagram(Venn_data, 
+             filename = "Result/Venn_DAVITvsenrichGO.tiff",
+             imagetype = "tiff",
+             height=3000, width=3000,
+             resolution = 500,
+             units = "px",
+             fill=c(4,7),
+             cat.pos=c(355, 25),
+             cat.dist=c(0.1,0.04),
+             cat.cex=c(2,2),
+             cex=c(2,2,2)
+)
+
+res_enrich_MSigDB_c5@result %>%
+    dplyr::filter(qvalue < 0.4) -> res_enrich_MSigDB_c5_cut
+colnames(res_enrich_MSigDB_c5_cut)[1] <- "Term"
+head(res_enrich_MSigDB_c5_cut$Term)
+res_enrich_MSigDB_c5_cut$Term <- grep_chr_2(res_enrich_MSigDB_c5_cut$Term, "_") %>% 
+    gsub("_", " ", .) %>% 
+    tolower()
+head(res_enrich_MSigDB_c5_cut$Term)
+
+inner_join(DAVIT, res_enrich_MSigDB_c5_cut) -> tmp
+tmp
+write.table(tmp, "Result/marged_DAVID_and_MSigDB_c5.txt",
+            sep = "\t", quote = F, row.names = F)
+
+a <- DAVIT$Term
+b <- res_enrich_MSigDB_c5_cut$Term
+
+Venn_data <- list(DAVIT=a, enricher=b)
+venn.diagram(Venn_data, 
+             filename = "Result/Venn_DAVITvsenricher.tiff",
+             imagetype = "tiff",
+             height=3000, width=3000,
+             resolution = 500,
+             units = "px",
+             fill=c(4,7),
+             cat.pos=c(355, 25),
+             cat.dist=c(0.1,0.04),
+             cat.cex=c(2,2),
+             cex=c(2,2,2)
+)
