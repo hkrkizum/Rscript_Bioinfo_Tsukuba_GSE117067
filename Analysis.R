@@ -117,6 +117,10 @@ rawdata_paper <- read_delim("preetika_Oct.w_LimmaVoom_DEG_results.txt",
 head(rawdata)
 head(rawdata_paper)
 
+rawdata_paper %>%  # Check number of DEG in paper 
+    dplyr::filter(BH.qvalue < 0.25) %>%
+    arrange(desc(logFC)) %>% 
+    dim()
 
 # DEG Analysis by TCC  -----------------------------------------------------
 
@@ -154,11 +158,10 @@ df_result %>%
   dplyr::select(-(2:6)) %>% 
   dplyr::filter(q.value < param_FDR) -> tmp
 write.table(tmp, "Result/df_result_2.txt",sep = "\t", quote = F, row.names = F)
-# df_result %>% 
-#     dplyr::filter(q.value < 0.05) %>% dim() 
-# 
-df_result %>%
-    dplyr::filter(q.value < 0.25) %>% dim()
+
+df_result %>%    # Check DEG list
+    dplyr::filter(q.value < 0.25) %>% 
+    dim()
 
 ## make MAplot -----------------------------------------------
 out_f2 <- "Result/MAplot_rev2.png"                  #出力ファイル名を指定してout_f2に格納
@@ -199,11 +202,8 @@ df_result %>%
     dplyr::filter(q.value < param_FDR) %>% 
     dplyr::select(gene_id, m.value) -> DEG_list
 
-
-
 # VennDiagram  ------------------------------------------------------------------
-rawdata_paper %>% dplyr::filter(BH.qvalue < 0.25) %>% 
-    dplyr::filter(logFC > log10(1.6) | logFC < -log10(1.6)) -> DEG_paper
+rawdata_paper %>% dplyr::filter(BH.qvalue < 0.25) -> DEG_paper
 
 Mydata <- DEG_list$gene_id
 Paper_data <- DEG_paper$id
@@ -246,8 +246,6 @@ res$coefficients
 res <- lm(df_schatter[1000:dim(df_schatter)[1],]$mean_KO ~ df_schatter[1000:dim(df_schatter)[1],]$mean_KO_p)
 summary(res)
 res$coefficients
-
-
 
 g <-ggplot(df_schatter, aes(x=mean_WT_p, y=mean_WT_p)) +
   geom_point() +
@@ -354,7 +352,6 @@ df_heatmap
 
 heatmap(as.matrix(df_heatmap),Colv = NA)
 
-
 pdf(file = "Result/Cluster.pdf",
      width = 6, height = 25) # defaults to 7 x 7 inches
 
@@ -428,6 +425,15 @@ disease2name <- DisOnt[, c("diseaseId", "diseaseName")]
 
 head(MSigDB_c5)
 # make Backgrounf Gene list -----------------------------------------------------------------------------------
+
+# df_result %>% 
+#     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
+#           filters = "ensembl_gene_id",
+#           values = .$gene_id,
+#           mart = Mg) -> tmp
+# write.table(tmp, "Result/df_result_allgene.txt", 
+#             sep = "\t", quote = FALSE, col.names = T, row.names = F)
+
 df_result_allgene <- read_delim("Result/df_result_allgene.txt", 
                                 "\t", escape_double = FALSE, trim_ws = TRUE)
 colnames(df_result_allgene)[1]  <-　"gene_id"
@@ -441,15 +447,6 @@ tmp[!duplicated(tmp$entrezgene),] -> tmp
 universe_entranz <- tmp$entrezgene
 
 # for GSEA ----------------------------------------------------------------------------------------------------
-
-# df_result %>% 
-#     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
-#           filters = "ensembl_gene_id",
-#           values = .$gene_id,
-#           mart = Mg) -> tmp
-# write.table(tmp, "Result/df_result_allgene.txt", 
-#             sep = "\t", quote = FALSE, col.names = T, row.names = F)
-
 df_result_allgene <- read_delim("Result/df_result_allgene.txt", 
                                 "\t", escape_double = FALSE, trim_ws = TRUE)
 colnames(df_result_allgene)[1]  <-　"gene_id"
@@ -517,10 +514,18 @@ res_GSEA <- GSEA(geneList = geneList_GSEA,
             by = "fgsea",
             TERM2GENE = MSigDB_c5
             )
-res_GSEA@result$ID[1:10]
-barplot(res_GSEA, showCategory=20)
+rownames(res_GSEA@result) <- 1:dim(res_GSEA@result)[1]
+res_GSEA@result$ID <- grep_chr_2(res_GSEA@result$ID, "_") %>% 
+    gsub("_", " ", .) %>% 
+    tolower() -> res_GSEA@result$ID
+
+res_GSEA@result[res_GSEA@result$core_enrichment %>% grep("DLG1",.),] %>% head()
+
 gseaplot(res_GSEA, res_GSEA@result$ID[1])
-write.table(res_GSEA@result, "Result/GSEA.txt", sep = "\t",row.names = F,quote = F)
+
+res_GSEA@result %>% 
+    dplyr::select(-Description) %>% 
+    write.table(., "Result/GSEA.txt", sep = "\t",row.names = F,quote = F)
 dim(res_GSEA@result)
 
 ## gseGO ----------------------------------
@@ -535,6 +540,7 @@ res_gseGO <- gseGO(geneList = geneList_gseGO,
                    pAdjustMethod = "BH",
                    verbose      = TRUE
                    )
+res_gseGO@result$Description
 png("Result/GSEAplot.png", height = 2000, width = 3000, res = 300)
 gseaplot(res_gseGO, res_gseGO@result$ID[2])
 dev.off()
@@ -602,16 +608,26 @@ res_enrich_KEGG <- enrichKEGG(gene = geneList_OA_down_entrezgene,
                               pvalueCutoff = 0.05,
                               pAdjustMethod = "BH",
                               qvalueCutoff = 0.1)
+
+res_enrich_KEGG <- enrichKEGG(gene = geneList_OA_up_entrezgene,
+                              organism = 'mmu',
+                              minGSSize = 10,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "BH",
+                              qvalueCutoff = 0.1)
+
 write.table(res_enrich_KEGG@result, "Result/res_enrich_KEGG.txt",
             sep = "\t", row.names = F, quote = F)
-
 res_enrich_KEGG@result
+
+
 browseKEGG(res_enrich_KEGG, res_enrich_KEGG@result$ID[1])
 res_enrich_KEGG@result$geneID
 
 
 
 ## Meshr enrichent analysis --------------------------------------------------------------
+
 # rawdata_paper %>%
 #     getBM(attributes = c("ensembl_gene_id","external_gene_name", "entrezgene"),
 #           filters = "ensembl_gene_id",
@@ -642,52 +658,72 @@ df_result_paper_allgene %>%
     na.omit() %>% 
     .[!duplicated(.$entrezgene),] -> tmp
 universe_paper_entranz <- tmp$entrezgene
-    
 
-
-
-
-meshParams <- new("MeSHHyperGParams", 
-                  geneIds = sig.geneid.cummeRbund[,2], 
-                  universeGeneIds = geneid.cummeRbund[, 2],
-                  annotation = "MeSH.Hsa.eg.db",
-                  category = "C",
-                  database = "gendoo",
-                  pvalueCutoff = 0.05,
-                  pAdjust = "none")
-
-meshR <- meshHyperGTest(meshParams)
-head(summary(meshR))
-
-
-meshParams <- new("MeSHHyperGParams", 
+# Up Only -------------------------------------------------------
+meshParams_up <- new("MeSHHyperGParams",   
                   geneIds = geneList_OA_up_entrezgene, 
                   universeGeneIds = universe_entranz,
                   annotation = "MeSH.Mmu.eg.db",
                   category = "F",
                   database = "gene2pubmed",
-                  pvalueCutoff = 0.05,
-                  pAdjust = "none")
+                  pvalueCutoff = 1,
+                  pAdjust = "BH")
+res_meshr_up <- meshHyperGTest(meshParams_up)
+head(summary(res_meshr_up))
+res_meshr_up@ORA %>% 
+    dplyr::filter(BH < 0.25) -> tmp
+unique(tmp$MESHTERM)
 
-meshParams <- new("MeSHHyperGParams", 
+# Down Only -------------------------------------------------------
+meshParams_down <- new("MeSHHyperGParams",   
+                     geneIds = geneList_OA_down_entrezgene, 
+                     universeGeneIds = universe_entranz,
+                     annotation = "MeSH.Mmu.eg.db",
+                     category = "F",
+                     database = "gene2pubmed",
+                     pvalueCutoff = 1,
+                     pAdjust = "BH")
+res_meshr_down <- meshHyperGTest(meshParams_down)
+head(summary(res_meshr_down))
+res_meshr_down@ORA %>% 
+    dplyr::filter(BH < 0.25) -> tmp
+unique(tmp$MESHTERM)
+
+# All --------------------------------------------------------------
+meshParams_all <- new("MeSHHyperGParams", 
+                  geneIds = c(geneList_OA_up_entrezgene,geneList_OA_down_entrezgene), 
+                  universeGeneIds = universe_entranz,
+                  annotation = "MeSH.Mmu.eg.db",
+                  category = "F",
+                  database = "gene2pubmed",
+                  pvalueCutoff = 1,
+                  pAdjust = "BH")
+meshParams_all <- meshHyperGTest(meshParams_all)
+head(summary(meshParams_all))
+meshParams_all@ORA %>% 
+    dplyr::filter(BH < 0.3) -> tmp
+unique(tmp$MESHTERM)
+
+# All --------------------------------------------------------------
+meshParams_paper <- new("MeSHHyperGParams", 
                   geneIds = geneList_Paper_down_entrezgene, 
                   universeGeneIds = universe_paper_entranz,
                   annotation = "MeSH.Mmu.eg.db",
                   category = "F",
                   database = "gene2pubmed",
-                  pvalueCutoff = 0.05,
-                  pAdjust = "none")
+                  pvalueCutoff = 1,
+                  pAdjust = "BH")
+meshR <- meshHyperGTest(meshParams_paper)
+head(summary(meshR))
+meshR@ORA %>% 
+    dplyr::filter(BH < 0.3) -> tmp
+unique(tmp$MESHTERM)
 
 
 meshR <- meshHyperGTest(meshParams)
 write.table(meshR@ORA, "Result/meshr.txt",
             sep = "\t", row.names = F, quote = F)
 
-
-
-unique(meshR@ORA$MESHTERM)
-
-head(summary(meshR))
 
 ## hypergeometrix with database --------------------------------------------------------------
 Schizo_gene_list <- read_delim("Webresult/Schizo_gene_list.txt", 
